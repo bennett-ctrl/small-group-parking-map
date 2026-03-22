@@ -185,6 +185,36 @@
             pointer-events: none;
         }
         .walk-time-label.visible { opacity: 1; }
+        .route-dot {
+            position: absolute;
+            width: 32px; height: 32px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+        }
+        .route-dot.visible { opacity: 1; }
+        .route-dot-core {
+            position: absolute;
+            inset: 10px;
+            border-radius: 50%;
+            box-shadow: 0 0 6px 2px var(--dot-color);
+        }
+        .route-dot-ring {
+            position: absolute;
+            inset: 4px;
+            border-radius: 50%;
+            border: 2px solid var(--dot-color);
+            opacity: 0;
+            animation: dot-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+        }
+        .route-dot-ring:nth-child(3) {
+            animation-delay: 0.7s;
+        }
+        @keyframes dot-ping {
+            0% { transform: scale(0.6); opacity: 0.8; }
+            100% { transform: scale(2.2); opacity: 0; }
+        }
+
         .walk-emoji {
             display: inline-block;
             animation: wiggle 0.6s ease-in-out infinite alternate;
@@ -449,6 +479,8 @@
         let map, directionsService;
         let activeRenderer = null;
         let activeLabel = null;
+        let activeDot = null;
+        let activeDotInterval = null;
         let activeCard = null;
         let activeInfoWindow = null;
         let houseMarker = null;
@@ -677,6 +709,37 @@
             return CustomOverlay;
         }
 
+        // Overlay class for the dot (renders below info windows)
+        function createDotOverlayClass() {
+            class DotOverlay extends google.maps.OverlayView {
+                constructor(position, div, map) {
+                    super();
+                    this.position = position;
+                    this.div = div;
+                    this.setMap(map);
+                }
+                onAdd() {
+                    this.getPanes().overlayLayer.appendChild(this.div);
+                }
+                draw() {
+                    const projection = this.getProjection();
+                    const pos = projection.fromLatLngToDivPixel(
+                        new google.maps.LatLng(this.position.lat, this.position.lng)
+                    );
+                    if (pos) {
+                        this.div.style.position = 'absolute';
+                        this.div.style.left = (pos.x - this.div.offsetWidth / 2) + 'px';
+                        this.div.style.top = (pos.y - this.div.offsetHeight / 2) + 'px';
+                    }
+                }
+                onRemove() {
+                    if (this.div.parentNode) this.div.parentNode.removeChild(this.div);
+                }
+                remove() { this.setMap(null); }
+            }
+            return DotOverlay;
+        }
+
         // ============================================================
         //  SHOW ROUTE (animated via Google Directions API)
         // ============================================================
@@ -685,6 +748,8 @@
             // Clear previous
             if (activeRenderer) { activeRenderer.setMap(null); activeRenderer = null; }
             if (activeLabel) { activeLabel.remove(); activeLabel = null; }
+            if (activeDotInterval) { cancelAnimationFrame(activeDotInterval); activeDotInterval = null; }
+            if (activeDot) { activeDot.remove(); activeDot = null; }
             if (activeCard) activeCard.classList.remove('active-card');
             if (activeInfoWindow) { activeInfoWindow.close(); activeInfoWindow = null; }
 
@@ -771,6 +836,72 @@
                                 labelDiv.classList.add('visible');
                             });
                         });
+
+                        // Pulsing neon dot that traces the route
+                        const neonColor = color === '#16a34a' ? '#4ade80' : '#fbbf24';
+                        const dotDiv = document.createElement('div');
+                        dotDiv.className = 'route-dot';
+                        dotDiv.style.setProperty('--dot-color', neonColor);
+                        dotDiv.innerHTML = '<div class="route-dot-core" style="background:' + neonColor + '"></div>'
+                            + '<div class="route-dot-ring"></div>'
+                            + '<div class="route-dot-ring"></div>';
+
+                        const DotOverlay = createDotOverlayClass();
+                        activeDot = new DotOverlay({ lat: path[0].lat(), lng: path[0].lng() }, dotDiv, map);
+
+                        requestAnimationFrame(() => {
+                            requestAnimationFrame(() => { dotDiv.classList.add('visible'); });
+                        });
+
+                        // Pre-compute cumulative distances for even speed
+                        const distances = [0];
+                        for (let i = 1; i < path.length; i++) {
+                            const d = google.maps.geometry.spherical.computeDistanceBetween(path[i-1], path[i]);
+                            distances.push(distances[i-1] + d);
+                        }
+                        const totalDist = distances[distances.length - 1];
+
+                        // Timing: 5s to traverse, 1.5s pause at end
+                        const traverseMs = 5000;
+                        const pauseMs = 1500;
+                        const cycleMs = traverseMs + pauseMs;
+                        const startTime = performance.now();
+
+                        function positionAtDistance(dist) {
+                            // Clamp to valid range
+                            dist = Math.max(0, Math.min(dist, totalDist));
+                            // Find which segment this distance falls on
+                            let seg = 0;
+                            for (let i = 1; i < distances.length; i++) {
+                                if (distances[i] >= dist) { seg = i - 1; break; }
+                                if (i === distances.length - 1) { seg = i - 1; }
+                            }
+                            const segStart = distances[seg];
+                            const segEnd = distances[seg + 1];
+                            const segLen = segEnd - segStart;
+                            const frac = segLen > 0 ? (dist - segStart) / segLen : 0;
+                            return {
+                                lat: path[seg].lat() + (path[seg+1].lat() - path[seg].lat()) * frac,
+                                lng: path[seg].lng() + (path[seg+1].lng() - path[seg].lng()) * frac
+                            };
+                        }
+
+                        function animateDot() {
+                            if (!activeDot) return;
+                            const elapsed = (performance.now() - startTime) % cycleMs;
+                            if (elapsed < traverseMs) {
+                                // Ease-in-out for smooth feel
+                                let t = elapsed / traverseMs;
+                                t = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+                                const dist = t * totalDist;
+                                const pos = positionAtDistance(dist);
+                                activeDot.position = pos;
+                                activeDot.draw();
+                            }
+                            // During pause phase, dot stays at end (last drawn position)
+                            activeDotInterval = requestAnimationFrame(animateDot);
+                        }
+                        activeDotInterval = requestAnimationFrame(animateDot);
                     }
                     activeRenderer.setOptions({
                         polylineOptions: {
@@ -824,7 +955,7 @@
     </script>
 
     <script async defer
-        src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDxeTDo-JekbDxYP4u3dtKFEOV7WqOG2L0&callback=initMap">
+        src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDxeTDo-JekbDxYP4u3dtKFEOV7WqOG2L0&libraries=geometry&callback=initMap">
     </script>
 </body>
 </html>
