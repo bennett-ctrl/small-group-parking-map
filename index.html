@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Parken & Wegbeschreibung</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; overflow: hidden; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            display: flex;
+            flex-direction: row;
+        }
+
+        .map-column {
+            flex: 1;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #map { flex: 1; width: 100%; }
+
+        .sidebar {
+            width: 300px;
+            flex-shrink: 0;
+            background: #1e293b;
+            border-left: 1px solid #334155;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        .header {
+            padding: 24px 20px 20px;
+            text-align: left;
+            border-bottom: 1px solid #334155;
+        }
+        .header h1 {
+            font-size: 20px;
+            font-weight: 700;
+            color: #f8fafc;
+            margin-bottom: 4px;
+            letter-spacing: -0.3px;
+        }
+        .header p {
+            font-size: 13px;
+            color: #94a3b8;
+        }
+
+        .parking-options {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 16px;
+            flex: 1;
+        }
+
+        .section-label {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #64748b;
+            padding: 0 2px;
+        }
+
+        .parking-card {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: #0f172a;
+            border-radius: 10px;
+            padding: 12px 14px;
+            border: 1px solid #334155;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s, transform 0.15s ease;
+        }
+        .parking-card:hover, .parking-card:active {
+            border-color: #475569;
+            background: #1a2744;
+        }
+        .parking-card:active {
+            transform: scale(0.97);
+        }
+        .parking-card.active-card {
+            border-color: #3b82f6;
+            background: #1a2744;
+        }
+
+        .spot-icon {
+            width: 38px; height: 38px;
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 20px; font-weight: 800; flex-shrink: 0;
+            color: white;
+        }
+        .spot-house { background: #2563eb; }
+        .spot-grass { background: #16a34a; }
+        .spot-kita  { background: #d97706; }
+
+
+        .spot-details { flex: 1; min-width: 0; }
+        .spot-name { font-size: 14px; font-weight: 600; color: #f1f5f9; }
+        .spot-desc { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+        .spot-info { font-size: 12px; color: #cbd5e1; margin-top: 3px; }
+
+        .sidebar-footer {
+            padding: 12px 16px;
+            border-top: 1px solid #334155;
+            font-size: 11px; color: #64748b;
+            text-align: center;
+        }
+
+
+        /* Walk time floating label on the map */
+        .walk-time-label {
+            background: #1e293b;
+            color: white;
+            padding: 5px 12px;
+            border-radius: 14px;
+            font-size: 13px;
+            font-weight: 800;
+            font-family: -apple-system, sans-serif;
+            white-space: nowrap;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+            border: 2px solid rgba(255,255,255,0.3);
+            opacity: 0;
+            transition: opacity 0.5s ease;
+            pointer-events: none;
+        }
+        .walk-time-label.visible { opacity: 1; }
+        .walk-emoji {
+            display: inline-block;
+            animation: wiggle 0.6s ease-in-out infinite alternate;
+        }
+        @keyframes wiggle {
+            0% { transform: translateX(-1px) rotate(-5deg); }
+            100% { transform: translateX(1px) rotate(5deg); }
+        }
+
+        .call-fab {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            z-index: 100;
+            width: 44px; height: 44px;
+            border-radius: 50%;
+            background: #1e293b;
+            border: 1.5px solid #475569;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 20px;
+            cursor: pointer;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+            transition: transform 0.15s ease;
+        }
+        .call-fab:active { transform: scale(0.92); }
+
+        .call-popup {
+            position: absolute;
+            top: 64px;
+            left: 12px;
+            z-index: 100;
+            background: #1e293b;
+            border: 1px solid #475569;
+            border-radius: 14px;
+            padding: 16px 18px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+            opacity: 0;
+            transform: translateY(-8px) scale(0.95);
+            pointer-events: none;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+        .call-popup.visible {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            pointer-events: auto;
+        }
+        .call-popup-label {
+            font-size: 13px;
+            color: #94a3b8;
+            font-family: -apple-system, sans-serif;
+            margin-bottom: 10px;
+        }
+        .call-popup-btn {
+            display: block;
+            width: 100%;
+            padding: 10px 16px;
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 700;
+            font-family: -apple-system, sans-serif;
+            text-decoration: none;
+            text-align: center;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .call-popup-btn:active { background: #1d4ed8; }
+
+        /* House label on map */
+        .house-label {
+            background: rgba(37, 99, 235, 0.9);
+            color: white;
+            padding: 3px 8px;
+            border-radius: 5px;
+            font-size: 12px;
+            font-weight: 700;
+            font-family: -apple-system, sans-serif;
+            white-space: nowrap;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            border: 1.5px solid rgba(255,255,255,0.3);
+            pointer-events: none;
+        }
+
+        /* Welcome overlay */
+        .welcome-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.92);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            opacity: 1;
+            transition: opacity 0.4s ease;
+        }
+        .welcome-overlay.hiding { opacity: 0; pointer-events: none; }
+        .welcome-card {
+            background: #1e293b;
+            border-radius: 16px;
+            padding: 28px 24px 24px;
+            max-width: 340px;
+            width: 100%;
+            border: 1px solid #334155;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        .welcome-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: #f8fafc;
+            text-align: center;
+            margin-bottom: 4px;
+        }
+        .welcome-subtitle {
+            font-size: 13px;
+            color: #94a3b8;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .welcome-steps {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            margin-bottom: 22px;
+        }
+        .welcome-step {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        .step-num {
+            width: 36px; height: 36px;
+            border-radius: 50%;
+            background: #2563eb;
+            color: white;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 16px; font-weight: 700;
+            flex-shrink: 0;
+        }
+        .step-text {
+            font-size: 14px;
+            color: #e2e8f0;
+            line-height: 1.4;
+        }
+        .step-text strong { color: #f8fafc; }
+        .welcome-btn {
+            display: block;
+            width: 100%;
+            padding: 14px;
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            font-family: inherit;
+            transition: background 0.2s;
+        }
+        .welcome-btn:active { background: #1d4ed8; }
+
+        /* Mobile */
+        @media (max-width: 700px) {
+            body { flex-direction: column; }
+            .map-column { flex: none; height: 55vh; }
+            .sidebar {
+                width: 100%; border-left: none;
+                border-top: 1px solid #334155;
+                flex: 1; overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+            .header { padding: 10px 14px 8px; }
+            .header h1 { font-size: 17px; }
+            .header p { font-size: 12px; }
+            .section-label { display: none; }
+            .parking-options {
+                padding: 10px 10px 8px;
+                gap: 8px;
+                flex-direction: row;
+                flex-wrap: wrap;
+            }
+            .parking-card {
+                flex: 1 1 calc(33.3% - 6px);
+                min-width: 0;
+                flex-direction: column;
+                text-align: center;
+                padding: 10px 6px;
+                gap: 6px;
+            }
+            .spot-icon { width: 36px; height: 36px; font-size: 16px; }
+            .spot-details { min-width: 0; }
+            .spot-name { font-size: 13px; }
+            .spot-desc { font-size: 10px; margin-top: 1px; }
+            .spot-info { font-size: 10px; margin-top: 2px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="welcome-overlay" id="welcome">
+        <div class="welcome-card">
+            <div class="welcome-title">Willkommen! 👋</div>
+            <div class="welcome-subtitle">So findest du Parkplätze & den Weg zum Haus</div>
+            <div class="welcome-steps">
+                <div class="welcome-step">
+                    <div class="step-num">1</div>
+                    <div class="step-text"><strong>Parkoption wählen</strong> — tippe unten auf einen der Parkplätze</div>
+                </div>
+                <div class="welcome-step">
+                    <div class="step-num">2</div>
+                    <div class="step-text"><strong>Fußweg sehen</strong> — die Route zum Haus wird auf der Karte angezeigt</div>
+                </div>
+                <div class="welcome-step">
+                    <div class="step-num">3</div>
+                    <div class="step-text"><strong>Navigieren</strong> — tippe auf „Hierhin navigieren" um Google Maps zu öffnen</div>
+                </div>
+            </div>
+            <button class="welcome-btn" onclick="dismissWelcome()">Los geht's 🚗</button>
+        </div>
+    </div>
+
+    <div class="map-column">
+        <div id="map"></div>
+        <div class="call-fab" id="callFab" onclick="toggleCallPopup()">📞</div>
+        <div class="call-popup" id="callPopup">
+            <div class="call-popup-label">Parkplatz-Notfall?</div>
+            <a href="tel:+4917672769241" class="call-popup-btn">Bennett's Roadside Assistance 📞</a>
+        </div>
+    </div>
+
+    <div class="sidebar">
+        <div class="header">
+            <h1>Kleingruppe @ Bennett's</h1>
+            <p>Tippe auf eine Parkmöglichkeit, um den Fußweg zu sehen</p>
+        </div>
+
+        <div class="parking-options">
+            <div class="section-label">Ziel</div>
+            <div class="parking-card" onclick="showRoute('house')" id="card-house">
+                <div class="spot-icon spot-house">🏠</div>
+                <div class="spot-details">
+                    <div class="spot-name">Am Haus</div>
+                    <div class="spot-desc">Helleforthstraße 125D</div>
+                    <div class="spot-info">🅿️ (2)</div>
+                </div>
+            </div>
+
+            <div class="section-label" style="margin-top: 6px;">Weitere Parkplätze</div>
+            <div class="parking-card" onclick="showRoute('grass')" id="card-grass">
+                <div class="spot-icon spot-grass">🅿️</div>
+                <div class="spot-details">
+                    <div class="spot-name">Straßenrand</div>
+                    <div class="spot-desc">Am Straßenrand parken</div>
+                    <div class="spot-info">🅿️ (2) · 🚶 ~1 Min.</div>
+                </div>
+            </div>
+            <div class="parking-card" onclick="showRoute('kita')" id="card-kita">
+                <div class="spot-icon spot-kita">🅿️</div>
+                <div class="spot-details">
+                    <div class="spot-name">Kita-Parkplatz</div>
+                    <div class="spot-desc">Großer Parkplatz</div>
+                    <div class="spot-info">🅿️ (5) · 🚶 ~3 Min.</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // ============================================================
+        //  COORDINATES
+        // ============================================================
+
+        const HOUSE         = { lat: 51.88035, lng: 8.61028 };
+        const GRASS_PARKING = { lat: 51.88139, lng: 8.61071 };
+        const KITA_PARKING  = { lat: 51.87903, lng: 8.61031 };
+
+        // Use the actual street address for routing so Google resolves the correct driveway
+        const HOUSE_ADDRESS = 'Helleforthstraße 125D, 33758 Schloß Holte-Stukenbrock';
+
+        let map, directionsService;
+        let activeRenderer = null;
+        let activeLabel = null;
+        let activeCard = null;
+        let activeInfoWindow = null;
+        let houseMarker = null;
+
+        function initMap() {
+            map = new google.maps.Map(document.getElementById('map'), {
+                center: HOUSE,
+                zoom: 17,
+                mapTypeId: 'roadmap',
+                disableDefaultUI: true,
+                zoomControl: true,
+                zoomControlOptions: {
+                    position: google.maps.ControlPosition.RIGHT_TOP
+                },
+                styles: [
+                    { elementType: 'geometry', stylers: [{ color: '#1a1a2e' }] },
+                    { elementType: 'labels.text.stroke', stylers: [{ color: '#1a1a2e' }] },
+                    { elementType: 'labels.text.fill', stylers: [{ color: '#8892a4' }] },
+                    { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#2a2a4a' }] },
+                    { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#9ca3af' }] },
+                    { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#3a3a5c' }] },
+                    { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e1626' }] },
+                    { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#515c6e' }] },
+                    { featureType: 'landscape.man_made', elementType: 'geometry', stylers: [{ color: '#1e1e38' }] },
+                    { featureType: 'landscape.natural', elementType: 'geometry', stylers: [{ color: '#1a2332' }] },
+                    { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
+                    { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#1e2a3a' }] },
+                    { featureType: 'transit', stylers: [{ visibility: 'off' }] }
+                ]
+            });
+
+            directionsService = new google.maps.DirectionsService();
+
+            // Fit bounds to show all three points
+            const bounds = new google.maps.LatLngBounds();
+            bounds.extend(HOUSE);
+            bounds.extend(GRASS_PARKING);
+            bounds.extend(KITA_PARKING);
+            map.fitBounds(bounds, { top: 40, bottom: 40, left: 40, right: 40 });
+
+            // ============================================================
+            //  HOUSE: highlight with 125D label + P×1
+            // ============================================================
+
+            // Blue transparent rectangle over the house
+            houseMarker = new google.maps.Marker({
+                position: HOUSE,
+                map: map,
+                icon: {
+                    path: google.maps.SymbolPath.CIRCLE,
+                    scale: 0,
+                },
+                zIndex: 10
+            });
+
+            // House label overlay
+            const houseLabelDiv = document.createElement('div');
+            houseLabelDiv.className = 'house-label';
+            houseLabelDiv.innerHTML = '🏠 &bull; 🅿️';
+
+            const HouseLabel = createOverlayClass();
+            window._houseLabelDiv = houseLabelDiv;
+            const houseLabelOverlay = new HouseLabel(HOUSE, houseLabelDiv, map, { x: 0, y: 0 });
+
+            // Info window for house
+            const houseInfo = new google.maps.InfoWindow({
+                content: `
+                    <div style="font-family: -apple-system, sans-serif; padding: 4px;">
+                        <div style="font-weight: 700; font-size: 15px; margin-bottom: 4px;">Bennett's Haus</div>
+                        <div style="color: #666; font-size: 12px;">Helleforthstraße 125D</div>
+                        <div style="color: #666; font-size: 12px;">2 Parkplätze in der Einfahrt</div>
+                        <div style="margin-top: 6px;">
+                            <a href="https://www.google.com/maps/dir/?api=1&destination=${HOUSE.lat},${HOUSE.lng}&travelmode=driving"
+                               target="_blank"
+                               style="display:inline-block; background:#2563eb; color:white; padding:5px 10px; border-radius:6px; font-size:12px; font-weight:600; text-decoration:none;">
+                                In Google Maps öffnen
+                            </a>
+                        </div>
+                    </div>
+                `
+            });
+            houseMarker.addListener('click', () => { if (activeInfoWindow) activeInfoWindow.close(); houseInfo.open(map, houseMarker); activeInfoWindow = houseInfo; });
+            // Also open on label click
+            google.maps.event.addDomListener(houseLabelDiv, 'click', () => {
+                if (activeInfoWindow) activeInfoWindow.close(); houseInfo.open(map, houseMarker); activeInfoWindow = houseInfo;
+            });
+            houseLabelDiv.style.cursor = 'pointer';
+            houseLabelDiv.style.pointerEvents = 'auto';
+
+            // ============================================================
+            //  PARKING MARKERS (P icon pins)
+            // ============================================================
+
+            const grassMarker = new google.maps.Marker({
+                position: GRASS_PARKING,
+                map: map,
+                title: 'Straßenrand',
+                icon: {
+                    path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z',
+                    fillColor: '#16a34a',
+                    fillOpacity: 1,
+                    strokeColor: 'white',
+                    strokeWeight: 2,
+                    scale: 1.8,
+                    anchor: new google.maps.Point(12, 22),
+                    labelOrigin: new google.maps.Point(12, 10)
+                },
+                zIndex: 5
+            });
+
+            const grassInfo = new google.maps.InfoWindow({
+                content: `
+                    <div style="font-family: -apple-system, sans-serif; padding: 4px;">
+                        <div style="font-weight: 700; font-size: 15px; margin-bottom: 4px;">Straßenrand</div>
+                        <div style="color: #666; font-size: 12px;">Am Straßenrand parken</div>
+                        <div style="color: #666; font-size: 12px;">Platz für 2 Autos</div>
+                        <div style="color: #16a34a; font-size: 12px; font-weight: 600; margin-top: 4px;">🚶 ~1 Min. Fußweg</div>
+                        <div style="margin-top: 6px;">
+                            <a href="https://www.google.com/maps/dir/?api=1&destination=${GRASS_PARKING.lat},${GRASS_PARKING.lng}&travelmode=driving"
+                               target="_blank"
+                               style="display:inline-block; background:#16a34a; color:white; padding:5px 10px; border-radius:6px; font-size:12px; font-weight:600; text-decoration:none;">
+                                Hierhin navigieren
+                            </a>
+                        </div>
+                    </div>
+                `
+            });
+            grassMarker.addListener('click', () => { if (activeInfoWindow) activeInfoWindow.close(); grassInfo.open(map, grassMarker); activeInfoWindow = grassInfo; });
+
+            const kitaMarker = new google.maps.Marker({
+                position: KITA_PARKING,
+                map: map,
+                title: 'Kita-Parkplatz',
+                icon: {
+                    path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z',
+                    fillColor: '#d97706',
+                    fillOpacity: 1,
+                    strokeColor: 'white',
+                    strokeWeight: 2,
+                    scale: 1.8,
+                    anchor: new google.maps.Point(12, 22),
+                    labelOrigin: new google.maps.Point(12, 10)
+                },
+                zIndex: 5
+            });
+
+            const kitaInfo = new google.maps.InfoWindow({
+                content: `
+                    <div style="font-family: -apple-system, sans-serif; padding: 4px;">
+                        <div style="font-weight: 700; font-size: 15px; margin-bottom: 4px;">Kita-Parkplatz</div>
+                        <div style="color: #666; font-size: 12px;">Großer Parkplatz</div>
+                        <div style="color: #d97706; font-size: 12px; font-weight: 600; margin-top: 4px;">🚶 ~3 Min. Fußweg</div>
+                        <div style="margin-top: 6px;">
+                            <a href="https://www.google.com/maps/dir/?api=1&destination=${KITA_PARKING.lat},${KITA_PARKING.lng}&travelmode=driving"
+                               target="_blank"
+                               style="display:inline-block; background:#d97706; color:white; padding:5px 10px; border-radius:6px; font-size:12px; font-weight:600; text-decoration:none;">
+                                Hierhin navigieren
+                            </a>
+                        </div>
+                    </div>
+                `
+            });
+            kitaMarker.addListener('click', () => { if (activeInfoWindow) activeInfoWindow.close(); kitaInfo.open(map, kitaMarker); activeInfoWindow = kitaInfo; });
+
+            // Parking labels next to markers
+            const GrassLabel = createOverlayClass();
+            const grassLabelDiv = document.createElement('div');
+            grassLabelDiv.className = 'house-label';
+            grassLabelDiv.style.background = 'rgba(22, 163, 74, 0.9)';
+            grassLabelDiv.innerHTML = '🅿️';
+            new GrassLabel(GRASS_PARKING, grassLabelDiv, map, { x: 0, y: 18 });
+
+            const KitaLabel = createOverlayClass();
+            const kitaLabelDiv = document.createElement('div');
+            kitaLabelDiv.className = 'house-label';
+            kitaLabelDiv.style.background = 'rgba(217, 119, 6, 0.9)';
+            kitaLabelDiv.innerHTML = '🅿️';
+            new KitaLabel(KITA_PARKING, kitaLabelDiv, map, { x: 0, y: 18 });
+
+            // Restore house label when any info window is closed via X
+            [grassInfo, kitaInfo].forEach(iw => {
+                iw.addListener('closeclick', () => {
+                    if (window._houseLabelDiv) window._houseLabelDiv.style.display = '';
+                });
+            });
+
+            // Store markers
+            window._markers = { house: houseMarker, grass: grassMarker, kita: kitaMarker };
+            window._infos = { house: houseInfo, grass: grassInfo, kita: kitaInfo };
+        }
+
+        // ============================================================
+        //  Custom overlay class for HTML labels on the map
+        // ============================================================
+
+        function createOverlayClass() {
+            class CustomOverlay extends google.maps.OverlayView {
+                constructor(position, div, map, offset) {
+                    super();
+                    this.position = position;
+                    this.div = div;
+                    this.offset = offset || { x: 0, y: 0 };
+                    this.setMap(map);
+                }
+                onAdd() {
+                    this.getPanes().floatPane.appendChild(this.div);
+                }
+                draw() {
+                    const projection = this.getProjection();
+                    const pos = projection.fromLatLngToDivPixel(
+                        new google.maps.LatLng(this.position.lat, this.position.lng)
+                    );
+                    if (pos) {
+                        this.div.style.position = 'absolute';
+                        this.div.style.left = (pos.x + this.offset.x - this.div.offsetWidth / 2) + 'px';
+                        this.div.style.top = (pos.y + this.offset.y - this.div.offsetHeight / 2) + 'px';
+                    }
+                }
+                onRemove() {
+                    if (this.div.parentNode) this.div.parentNode.removeChild(this.div);
+                }
+                remove() {
+                    this.setMap(null);
+                }
+            }
+            return CustomOverlay;
+        }
+
+        // ============================================================
+        //  SHOW ROUTE (animated via Google Directions API)
+        // ============================================================
+
+        function showRoute(key) {
+            // Clear previous
+            if (activeRenderer) { activeRenderer.setMap(null); activeRenderer = null; }
+            if (activeLabel) { activeLabel.remove(); activeLabel = null; }
+            if (activeCard) activeCard.classList.remove('active-card');
+            if (activeInfoWindow) { activeInfoWindow.close(); activeInfoWindow = null; }
+
+            // House: just zoom there
+            if (key === 'house') {
+                if (window._houseLabelDiv) window._houseLabelDiv.style.display = '';
+                map.panTo(HOUSE);
+                map.setZoom(18);
+                window._infos.house.open(map, window._markers.house);
+                activeInfoWindow = window._infos.house;
+                document.getElementById('card-house').classList.add('active-card');
+                activeCard = document.getElementById('card-house');
+                return;
+            }
+
+            // Hide house label so it doesn't overlap info windows
+            if (window._houseLabelDiv) window._houseLabelDiv.style.display = 'none';
+
+            // Highlight sidebar card
+            const card = document.getElementById('card-' + key);
+            card.classList.add('active-card');
+            activeCard = card;
+
+            // Open info window for this spot
+            window._infos[key].open(map, window._markers[key]);
+            activeInfoWindow = window._infos[key];
+
+            const origin = key === 'grass' ? GRASS_PARKING : KITA_PARKING;
+            const color = key === 'grass' ? '#16a34a' : '#d97706';
+            const walkTime = key === 'grass' ? '~1 Min.' : '~3 Min.';
+
+            // Request walking directions from Google
+            directionsService.route({
+                origin: origin,
+                destination: HOUSE_ADDRESS,
+                travelMode: google.maps.TravelMode.WALKING
+            }, function(result, status) {
+                if (status !== 'OK') return;
+
+                // Create renderer with custom styling
+                activeRenderer = new google.maps.DirectionsRenderer({
+                    map: map,
+                    directions: result,
+                    suppressMarkers: true,
+                    polylineOptions: {
+                        strokeColor: color,
+                        strokeOpacity: 0,
+                        strokeWeight: 5,
+                        icons: [{
+                            icon: {
+                                path: 'M 0,-1 0,1',
+                                strokeOpacity: 0.9,
+                                strokeColor: color,
+                                scale: 3
+                            },
+                            offset: '0',
+                            repeat: '14px'
+                        }]
+                    }
+                });
+
+                // Animate: fade in the route
+                let opacity = 0;
+                const fadeIn = setInterval(() => {
+                    opacity += 0.05;
+                    if (opacity >= 0.9) {
+                        opacity = 0.9;
+                        clearInterval(fadeIn);
+
+                        // Show walk time label near the house end of the route
+                        const path = result.routes[0].overview_path;
+                        const labelIdx = Math.floor(path.length * 0.7);
+                        const labelPos = { lat: path[labelIdx].lat(), lng: path[labelIdx].lng() };
+
+                        const labelDiv = document.createElement('div');
+                        labelDiv.className = 'walk-time-label';
+                        labelDiv.innerHTML = '<span class="walk-emoji">🚶</span> ' + walkTime;
+
+                        const LabelOverlay = createOverlayClass();
+                        activeLabel = new LabelOverlay(labelPos, labelDiv, map, { x: 0, y: -20 });
+
+                        requestAnimationFrame(() => {
+                            requestAnimationFrame(() => {
+                                labelDiv.classList.add('visible');
+                            });
+                        });
+                    }
+                    activeRenderer.setOptions({
+                        polylineOptions: {
+                            strokeColor: color,
+                            strokeOpacity: 0,
+                            strokeWeight: 5,
+                            icons: [{
+                                icon: {
+                                    path: 'M 0,-1 0,1',
+                                    strokeOpacity: opacity,
+                                    strokeColor: color,
+                                    scale: 3
+                                },
+                                offset: '0',
+                                repeat: '14px'
+                            }]
+                        }
+                    });
+                }, 30);
+
+                // Fit map to show the route
+                const routeBounds = result.routes[0].bounds;
+                map.fitBounds(routeBounds, { top: 80, bottom: 60, left: 40, right: 40 });
+            });
+        }
+    </script>
+
+    <script>
+        // Call popup toggle
+        function toggleCallPopup() {
+            document.getElementById('callPopup').classList.toggle('visible');
+        }
+        document.addEventListener('click', function(e) {
+            const popup = document.getElementById('callPopup');
+            const fab = document.getElementById('callFab');
+            if (popup && popup.classList.contains('visible') && !popup.contains(e.target) && !fab.contains(e.target)) {
+                popup.classList.remove('visible');
+            }
+        });
+
+        // Welcome overlay — show once
+        function dismissWelcome() {
+            const el = document.getElementById('welcome');
+            el.classList.add('hiding');
+            setTimeout(() => el.remove(), 400);
+            localStorage.setItem('parking-welcome-seen', '1');
+        }
+        if (localStorage.getItem('parking-welcome-seen')) {
+            document.getElementById('welcome').remove();
+        }
+    </script>
+
+    <script async defer
+        src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDxeTDo-JekbDxYP4u3dtKFEOV7WqOG2L0&callback=initMap">
+    </script>
+</body>
+</html>
