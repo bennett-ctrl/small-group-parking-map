@@ -224,6 +224,64 @@
             100% { transform: translateX(1px) rotate(5deg); }
         }
 
+        /* User location dot */
+        .user-dot {
+            position: absolute;
+            width: 40px; height: 40px;
+            pointer-events: none;
+        }
+        .user-dot-core {
+            position: absolute;
+            inset: 12px;
+            border-radius: 50%;
+            background: #4285F4;
+            border: 2.5px solid white;
+            box-shadow: 0 0 8px 2px rgba(66, 133, 244, 0.5);
+        }
+        .user-dot-ring {
+            position: absolute;
+            inset: 4px;
+            border-radius: 50%;
+            border: 2px solid rgba(66, 133, 244, 0.4);
+            opacity: 0;
+            animation: user-ping 2.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+        }
+        .user-dot-ring:nth-child(3) {
+            animation-delay: 0.8s;
+            border-color: rgba(66, 133, 244, 0.25);
+        }
+        @keyframes user-ping {
+            0% { transform: scale(0.5); opacity: 0.8; }
+            100% { transform: scale(2.5); opacity: 0; }
+        }
+        .user-accuracy {
+            position: absolute;
+            border-radius: 50%;
+            background: rgba(66, 133, 244, 0.1);
+            border: 1px solid rgba(66, 133, 244, 0.15);
+            pointer-events: none;
+        }
+
+        /* Location button */
+        .loc-fab {
+            position: absolute;
+            top: 12px;
+            left: 64px;
+            z-index: 100;
+            width: 44px; height: 44px;
+            border-radius: 50%;
+            background: #1e293b;
+            border: 1.5px solid #475569;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+            transition: transform 0.15s ease, background 0.2s;
+        }
+        .loc-fab:active { transform: scale(0.92); }
+        .loc-fab.active { background: #1e3a5f; border-color: #4285F4; }
+        .loc-fab.active svg { stroke: #4285F4; }
+        .loc-fab svg { width: 22px; height: 22px; }
+
         .call-fab {
             position: absolute;
             top: 12px;
@@ -425,6 +483,13 @@
     <div class="map-column">
         <div id="map"></div>
         <div class="call-fab" id="callFab" onclick="toggleCallPopup()">📞</div>
+        <div class="loc-fab" id="locFab" onclick="recenterOnUser()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round">
+                <circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="9" stroke-dasharray="2 4"/>
+                <line x1="12" y1="1" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="23"/>
+                <line x1="1" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="23" y2="12"/>
+            </svg>
+        </div>
         <div class="call-popup" id="callPopup">
             <div class="call-popup-label">Parkplatz-Notfall?</div>
             <a href="tel:+4917672769241" class="call-popup-btn">Bennett's Roadside Assistance 📞</a>
@@ -948,9 +1013,146 @@
             el.classList.add('hiding');
             setTimeout(() => el.remove(), 400);
             localStorage.setItem('parking-welcome-seen', '1');
+            autoStartLocation();
         }
         if (localStorage.getItem('parking-welcome-seen')) {
             document.getElementById('welcome').remove();
+            autoStartLocation();
+        }
+
+        // ============================================================
+        //  LIVE USER LOCATION (auto-start, 2km proximity check)
+        // ============================================================
+        let userDotOverlay = null;
+        let userAccuracyCircle = null;
+        let watchId = null;
+        let currentPos = null;
+        let displayPos = null;
+        let lerpFrame = null;
+        const MAX_DISTANCE_M = 2000; // Only show dot within 2km of house
+
+        function startLocationWatch() {
+            if (!navigator.geolocation || watchId !== null) return;
+
+            watchId = navigator.geolocation.watchPosition(
+                onPositionUpdate,
+                function(err) {
+                    watchId = null;
+                    // Silently fail — don't nag
+                },
+                { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+            );
+
+            // Battery: pause when tab is hidden, resume when visible
+            document.addEventListener('visibilitychange', function() {
+                if (watchId === null) return;
+                if (document.hidden) {
+                    navigator.geolocation.clearWatch(watchId);
+                    watchId = -1; // marker that we should resume
+                } else if (watchId === -1) {
+                    watchId = navigator.geolocation.watchPosition(
+                        onPositionUpdate,
+                        function() {},
+                        { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+                    );
+                }
+            });
+        }
+
+        function onPositionUpdate(pos) {
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+            const accuracy = pos.coords.accuracy;
+            currentPos = { lat, lng };
+
+            // Check distance from house
+            const userLatLng = new google.maps.LatLng(lat, lng);
+            const houseLatLng = new google.maps.LatLng(HOUSE.lat, HOUSE.lng);
+            const dist = google.maps.geometry.spherical.computeDistanceBetween(userLatLng, houseLatLng);
+
+            if (dist > MAX_DISTANCE_M) {
+                // Too far — hide dot if showing
+                hideUserDot();
+                return;
+            }
+
+            // Highlight the locate button
+            document.getElementById('locFab').classList.add('active');
+
+            // First position: snap
+            if (!displayPos) {
+                displayPos = { lat, lng };
+            }
+
+            // Create dot overlay if needed
+            if (!userDotOverlay) {
+                const dotDiv = document.createElement('div');
+                dotDiv.className = 'user-dot';
+                dotDiv.innerHTML = '<div class="user-dot-core"></div>'
+                    + '<div class="user-dot-ring"></div>'
+                    + '<div class="user-dot-ring"></div>';
+
+                const DotClass = createDotOverlayClass();
+                userDotOverlay = new DotClass(displayPos, dotDiv, map);
+            }
+
+            // Accuracy circle
+            if (!userAccuracyCircle) {
+                userAccuracyCircle = new google.maps.Circle({
+                    map: map,
+                    fillColor: '#4285F4',
+                    fillOpacity: 0.08,
+                    strokeColor: '#4285F4',
+                    strokeOpacity: 0.15,
+                    strokeWeight: 1,
+                    center: currentPos,
+                    radius: accuracy,
+                    zIndex: 1
+                });
+            } else {
+                userAccuracyCircle.setCenter(currentPos);
+                userAccuracyCircle.setRadius(accuracy);
+            }
+
+            // Start smooth lerp if not already running
+            if (!lerpFrame) startLerp();
+        }
+
+        function hideUserDot() {
+            if (userDotOverlay) { userDotOverlay.remove(); userDotOverlay = null; }
+            if (userAccuracyCircle) { userAccuracyCircle.setMap(null); userAccuracyCircle = null; }
+            if (lerpFrame) { cancelAnimationFrame(lerpFrame); lerpFrame = null; }
+            displayPos = null;
+            document.getElementById('locFab').classList.remove('active');
+        }
+
+        function startLerp() {
+            function step() {
+                if (!currentPos || !displayPos || !userDotOverlay) return;
+                displayPos.lat += (currentPos.lat - displayPos.lat) * 0.1;
+                displayPos.lng += (currentPos.lng - displayPos.lng) * 0.1;
+                userDotOverlay.position = displayPos;
+                userDotOverlay.draw();
+                lerpFrame = requestAnimationFrame(step);
+            }
+            lerpFrame = requestAnimationFrame(step);
+        }
+
+        // Recenter button: pan map to user's current position
+        function recenterOnUser() {
+            if (currentPos) {
+                map.panTo(currentPos);
+                map.setZoom(17);
+            } else {
+                // No position yet — try to trigger permission
+                startLocationWatch();
+            }
+        }
+
+        // Auto-start: request location after welcome is dismissed or on load
+        function autoStartLocation() {
+            // Small delay so the map loads first
+            setTimeout(startLocationWatch, 1500);
         }
     </script>
 
