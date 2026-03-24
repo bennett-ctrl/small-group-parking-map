@@ -129,6 +129,18 @@
         .house-card .spot-icon { width: 36px; height: 36px; }
         .house-card .spot-name { font-size: 13px; }
         .house-card .spot-desc { font-size: 10px; }
+        .house-card.driveway-full { border-color: #ef4444; background: #2a1520; }
+        .house-card .full-badge {
+            display: none;
+            background: #ef4444;
+            color: white;
+            font-size: 9px;
+            font-weight: 800;
+            padding: 1px 6px;
+            border-radius: 4px;
+            letter-spacing: 0.5px;
+        }
+        .house-card.driveway-full .full-badge { display: inline-block; }
 
         .parking-stack {
             flex: 1;
@@ -523,7 +535,7 @@
             <div class="house-card" onclick="showRoute('house')" id="card-house">
                 <div class="spot-icon spot-house">🏠</div>
                 <div class="spot-name">Am Haus</div>
-                <div class="spot-desc">125D · 🅿️ (2)</div>
+                <div class="spot-desc">125D · 🅿️ (2) <span class="full-badge">VOLL</span></div>
             </div>
 
             <div class="parking-stack">
@@ -554,6 +566,9 @@
         const HOUSE         = { lat: 51.88041, lng: 8.61051 };
         const GRASS_PARKING = { lat: 51.88139, lng: 8.61071 };
         const KITA_PARKING  = { lat: 51.87903, lng: 8.61031 };
+
+        // Toggle this to true/false to mark the driveway as full or available
+        const DRIVEWAY_FULL = true;
 
         // Use the actual street address for routing so Google resolves the correct driveway
         const HOUSE_ADDRESS = 'Helleforthstraße 125D, 33758 Schloß Holte-Stukenbrock';
@@ -621,7 +636,7 @@
             // House label overlay
             const houseLabelDiv = document.createElement('div');
             houseLabelDiv.className = 'house-label';
-            houseLabelDiv.innerHTML = '🏠 &bull; 🅿️';
+            houseLabelDiv.innerHTML = DRIVEWAY_FULL ? '🏠 &bull; ❌ VOLL' : '🏠 &bull; 🅿️';
 
             const HouseLabel = createOverlayClass();
             window._houseLabelDiv = houseLabelDiv;
@@ -633,7 +648,9 @@
                     <div style="font-family: -apple-system, sans-serif; padding: 4px;">
                         <div style="font-weight: 700; font-size: 15px; margin-bottom: 4px; color: #f8fafc;">Bennett's Haus</div>
                         <div style="color: #94a3b8; font-size: 12px;">Helleforthstraße 125D</div>
-                        <div style="color: #94a3b8; font-size: 12px;">2 Parkplätze in der Einfahrt</div>
+                        <div style="color: ${DRIVEWAY_FULL ? '#ef4444' : '#94a3b8'}; font-size: 12px; font-weight: ${DRIVEWAY_FULL ? '700' : '400'};">
+                            ${DRIVEWAY_FULL ? '❌ Einfahrt voll — bitte woanders parken' : '2 Parkplätze in der Einfahrt'}
+                        </div>
                         <div style="margin-top: 6px;">
                             <a href="https://www.google.com/maps/dir/?api=1&destination=${HOUSE.lat},${HOUSE.lng}&travelmode=driving"
                                target="_blank"
@@ -651,6 +668,12 @@
             });
             houseLabelDiv.style.cursor = 'pointer';
             houseLabelDiv.style.pointerEvents = 'auto';
+
+            // Apply driveway full state to sidebar card and map label
+            if (DRIVEWAY_FULL) {
+                document.getElementById('card-house').classList.add('driveway-full');
+                houseLabelDiv.style.background = 'rgba(239, 68, 68, 0.9)';
+            }
 
             // ============================================================
             //  PARKING MARKERS (P icon pins)
